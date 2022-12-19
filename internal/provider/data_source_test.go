@@ -23,7 +23,7 @@ const (
 )
 
 const testDataSourceConfig_basic = `
-resource "external_persisted" "test" {
+resource "exec_persisted" "test" {
   program = ["%s", "cheese"]
 
   query = {
@@ -32,17 +32,17 @@ resource "external_persisted" "test" {
 }
 
 output "query_value" {
-  value = "${external_persisted.test.result["query_value"]}"
+  value = "${exec_persisted.test.result["query_value"]}"
 }
 
 output "argument" {
-  value = "${external_persisted.test.result["argument"]}"
+  value = "${exec_persisted.test.result["argument"]}"
 }
 `
 
 func protoV6ProviderFactories() map[string]func() (tfprotov6.ProviderServer, error) {
 	return map[string]func() (tfprotov6.ProviderServer, error){
-		"external": providerserver.NewProtocol6WithError(New()),
+		"exec": providerserver.NewProtocol6WithError(New()),
 	}
 }
 
@@ -59,7 +59,7 @@ func TestDataSource_basic(t *testing.T) {
 			{
 				Config: fmt.Sprintf(testDataSourceConfig_basic, programPath),
 				Check: func(s *terraform.State) error {
-					_, ok := s.RootModule().Resources["external_persisted.test"]
+					_, ok := s.RootModule().Resources["exec_persisted.test"]
 					if !ok {
 						return fmt.Errorf("missing data resource")
 					}
@@ -94,7 +94,7 @@ func TestDataSource_basic(t *testing.T) {
 }
 
 const testDataSourceConfig_error = `
-resource "external_persisted" "test" {
+resource "exec_persisted" "test" {
   program = ["%s"]
 
   query = {
@@ -128,7 +128,7 @@ func TestDataSource_Program_OnlyEmptyString(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: `
-					resource "external_persisted" "test" {
+					resource "exec_persisted" "test" {
 						program = [
 							"", # e.g. a variable that became empty
 						]
@@ -157,7 +157,7 @@ func TestDataSource_Program_PathAndEmptyString(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: fmt.Sprintf(`
-					resource "external_persisted" "test" {
+					resource "exec_persisted" "test" {
 						program = [
 							%[1]q,
 							"", # e.g. a variable that became empty
@@ -169,7 +169,7 @@ func TestDataSource_Program_PathAndEmptyString(t *testing.T) {
 					}
 				`, programPath),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("external_persisted.test", "result.query_value", "valuetest"),
+					resource.TestCheckResourceAttr("exec_persisted.test", "result.query_value", "valuetest"),
 				),
 			},
 		},
@@ -213,7 +213,7 @@ func TestDataSource_20MinuteTimeout(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: `
-					resource "external_persisted" "test" {
+					resource "exec_persisted" "test" {
 						program = ["sleep", "1205"] # over 20 minutes
 					}
 				`,

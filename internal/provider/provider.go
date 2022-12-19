@@ -16,7 +16,7 @@ var _ provider.Provider = (*p)(nil)
 type p struct{}
 
 func (p *p) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "external"
+	resp.TypeName = "exec"
 }
 
 func (p *p) Schema(context.Context, provider.SchemaRequest, *provider.SchemaResponse) {
