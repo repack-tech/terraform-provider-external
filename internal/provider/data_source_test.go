@@ -2,6 +2,8 @@ package provider
 
 import (
 	"fmt"
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
 	"os"
 	"os/exec"
 	"path"
@@ -21,7 +23,7 @@ const (
 )
 
 const testDataSourceConfig_basic = `
-data "external" "test" {
+resource "external" "test" {
   program = ["%s", "cheese"]
 
   query = {
@@ -38,6 +40,12 @@ output "argument" {
 }
 `
 
+func protoV5ProviderFactories() map[string]func() (tfprotov5.ProviderServer, error) {
+	return map[string]func() (tfprotov5.ProviderServer, error){
+		"external": providerserver.NewProtocol5WithError(New()),
+	}
+}
+
 func TestDataSource_basic(t *testing.T) {
 	programPath, err := buildDataSourceTestProgram()
 	if err != nil {
@@ -46,12 +54,12 @@ func TestDataSource_basic(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		Providers: testProviders,
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: fmt.Sprintf(testDataSourceConfig_basic, programPath),
 				Check: func(s *terraform.State) error {
-					_, ok := s.RootModule().Resources["data.external.test"]
+					_, ok := s.RootModule().Resources["resource.external.test"]
 					if !ok {
 						return fmt.Errorf("missing data resource")
 					}
@@ -86,7 +94,7 @@ func TestDataSource_basic(t *testing.T) {
 }
 
 const testDataSourceConfig_error = `
-data "external" "test" {
+resource "external" "test" {
   program = ["%s"]
 
   query = {
@@ -103,7 +111,7 @@ func TestDataSource_error(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		Providers: testProviders,
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config:      fmt.Sprintf(testDataSourceConfig_error, programPath),
@@ -116,11 +124,11 @@ func TestDataSource_error(t *testing.T) {
 // Reference: https://github.com/hashicorp/terraform-provider-external/issues/110
 func TestDataSource_Program_OnlyEmptyString(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
-		Providers: testProviders,
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: `
-					data "external" "test" {
+					resource "external" "test" {
 						program = [
 							"", # e.g. a variable that became empty
 						]
@@ -145,11 +153,11 @@ func TestDataSource_Program_PathAndEmptyString(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		Providers: testProviders,
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: fmt.Sprintf(`
-					data "external" "test" {
+					resource "external" "test" {
 						program = [
 							%[1]q,
 							"", # e.g. a variable that became empty
@@ -161,7 +169,7 @@ func TestDataSource_Program_PathAndEmptyString(t *testing.T) {
 					}
 				`, programPath),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.external.test", "result.query_value", "valuetest"),
+					resource.TestCheckResourceAttr("resource.external.test", "result.query_value", "valuetest"),
 				),
 			},
 		},
@@ -172,7 +180,7 @@ func buildDataSourceTestProgram() (string, error) {
 	// We have a simple Go program that we use as a stub for testing.
 	cmd := exec.Command(
 		"go", "install",
-		"github.com/terraform-providers/terraform-provider-external/internal/provider/test-programs/tf-acc-external-data-source",
+		"github.com/repack-tech/terraform-provider-external/internal/provider/test-programs/tf-acc-external-data-source",
 	)
 	err := cmd.Run()
 
@@ -201,11 +209,11 @@ func TestDataSource_20MinuteTimeout(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		Providers: testProviders,
+		ProtoV5ProviderFactories: protoV5ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: `
-					data "external" "test" {
+					resource "external" "test" {
 						program = ["sleep", "1205"] # over 20 minutes
 					}
 				`,

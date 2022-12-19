@@ -1,11 +1,24 @@
 package main
 
 import (
-	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
-	"github.com/terraform-providers/terraform-provider-external/internal/provider"
+	"context"
+	"flag"
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/repack-tech/terraform-provider-external/internal/provider"
+	"log"
 )
 
 func main() {
-	plugin.Serve(&plugin.ServeOpts{
-		ProviderFunc: provider.New})
+	var debug bool
+
+	flag.BoolVar(&debug, "debug", false, "set to true to run the provider with support for debuggers like delve")
+	flag.Parse()
+	err := providerserver.Serve(context.Background(), provider.New, providerserver.ServeOpts{
+		Address:         "registry.terraform.io/hashicorp/external",
+		Debug:           debug,
+		ProtocolVersion: 5,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 }

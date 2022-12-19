@@ -2,7 +2,7 @@
 
 BUG FIXES:
 
-* data-source/external: Prevented unexpected error after 20 minutes of program execution ([#165](https://github.com/terraform-providers/terraform-provider-external/issues/165))
+* data-source/external: Prevented unexpected error after 20 minutes of program execution ([#165](https://github.com/repack-tech/terraform-provider-external/issues/165))
 
 ## 2.2.2 (March 14, 2022)
 
@@ -20,9 +20,9 @@ BUG FIXES:
 
 ENHANCEMENTS:
 
-* data-source/external: Program execution will now exit immediately when receiving an interrupt signal (Ctrl-c) from Terraform ([#91](https://github.com/terraform-providers/terraform-provider-external/issues/91))
-* data-source/external: Enhanced error messaging to include more troubleshooting information and recommendations ([#93](https://github.com/terraform-providers/terraform-provider-external/issues/93))
-* data-source/external: Added trace log for program being executed ([#95](https://github.com/terraform-providers/terraform-provider-external/issues/95))
+* data-source/external: Program execution will now exit immediately when receiving an interrupt signal (Ctrl-c) from Terraform ([#91](https://github.com/repack-tech/terraform-provider-external/issues/91))
+* data-source/external: Enhanced error messaging to include more troubleshooting information and recommendations ([#93](https://github.com/repack-tech/terraform-provider-external/issues/93))
+* data-source/external: Added trace log for program being executed ([#95](https://github.com/repack-tech/terraform-provider-external/issues/95))
 
 ## 2.1.1 (December 14, 2021)
 
@@ -40,17 +40,17 @@ Binary releases of this provider now include the linux-arm64 platform.
 
 BREAKING CHANGES:
 
-* Upgrade to version 2 of the Terraform Plugin SDK, which drops support for Terraform 0.11. This provider will continue to work as expected for users of Terraform 0.11, which will not download the new version. ([#47](https://github.com/terraform-providers/terraform-provider-external/issues/47))
+* Upgrade to version 2 of the Terraform Plugin SDK, which drops support for Terraform 0.11. This provider will continue to work as expected for users of Terraform 0.11, which will not download the new version. ([#47](https://github.com/repack-tech/terraform-provider-external/issues/47))
 
 BUG FIXES:
 
-* In Debugging mode, print the JSON from external data source as a string ([#46](https://github.com/terraform-providers/terraform-provider-external/issues/46))
+* In Debugging mode, print the JSON from external data source as a string ([#46](https://github.com/repack-tech/terraform-provider-external/issues/46))
 
 ## 1.2.0 (June 19, 2019)
 
 IMPROVEMENTS
 
-* Trace logging added for JSON output ([#36](https://github.com/terraform-providers/terraform-provider-external/issues/36))
+* Trace logging added for JSON output ([#36](https://github.com/repack-tech/terraform-provider-external/issues/36))
 
 ## 1.1.2 (April 30, 2019)
 
@@ -65,7 +65,7 @@ IMPROVEMENTS
 ENHANCEMENTS:
 
 * The provider is now compatible with Terraform v0.12, while retaining compatibility with prior versions.
-* `external` data source now accepts `working_dir` argument to set the working directory for the child process. ([#12](https://github.com/terraform-providers/terraform-provider-external/issues/12))
+* `external` data source now accepts `working_dir` argument to set the working directory for the child process. ([#12](https://github.com/repack-tech/terraform-provider-external/issues/12))
 
 ## 1.0.0 (September 14, 2017)
 

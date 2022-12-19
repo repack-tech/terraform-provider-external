@@ -5,17 +5,36 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"os/exec"
 	"runtime"
-
-	"github.com/hashicorp/go-cty/cty"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
-func dataSource() *schema.Resource {
-	return &schema.Resource{
+var (
+	_ resource.Resource = (*programResource)(nil)
+	//_ resource.ResourceWithImportState = (*programResource)(nil)
+)
+
+func NewExternalResource() resource.Resource {
+	return &programResource{}
+}
+
+type programResource struct{}
+
+func (r *programResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_id"
+}
+
+func (r *programResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+	resp.Schema = schema.Schema{
 		Description: "The `external` data source allows an external program implementing a specific protocol " +
 			"(defined below) to act as a data source, exposing arbitrary data for use elsewhere in the Terraform " +
 			"configuration.\n" +
@@ -30,94 +49,68 @@ func dataSource() *schema.Resource {
 			"**Warning** Terraform Enterprise does not guarantee availability of any particular language runtimes " +
 			"or external programs beyond standard shell utilities, so it is not recommended to use this data source " +
 			"within configurations that are applied within Terraform Enterprise.",
-
-		ReadWithoutTimeout: dataSourceRead,
-
-		Schema: map[string]*schema.Schema{
-			"program": {
+		Attributes: map[string]schema.Attribute{
+			"program": schema.ListAttribute{
 				Description: "A list of strings, whose first element is the program to run and whose " +
 					"subsequent elements are optional command line arguments to the program. Terraform does " +
 					"not execute the program through a shell, so it is not necessary to escape shell " +
 					"metacharacters nor add quotes around arguments containing spaces.",
-				Type:     schema.TypeList,
-				Required: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
+				Required:    true,
+				ElementType: types.StringType,
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.RequiresReplace(),
 				},
-				MinItems: 1,
 			},
-
-			"working_dir": {
+			"working_dir": schema.StringAttribute{
 				Description: "Working directory of the program. If not supplied, the program will run " +
 					"in the current directory.",
-				Type:     schema.TypeString,
 				Optional: true,
-				Default:  "",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
-
-			"query": {
+			"query": schema.StringAttribute{
 				Description: "A map of string values to pass to the external program as the query " +
 					"arguments. If not supplied, the program will receive an empty object as its input.",
-				Type:     schema.TypeMap,
 				Optional: true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
 				},
 			},
-
-			"result": {
-				Description: "A map of string values returned from the external program.",
-				Type:        schema.TypeMap,
-				Computed:    true,
-				Elem: &schema.Schema{
-					Type: schema.TypeString,
-				},
+			"result": schema.MapAttribute{
+				Description: "A map of string values to pass to the external program as the query " +
+					"arguments. If not supplied, the program will receive an empty object as its input.",
+				Computed: true,
 			},
 		},
 	}
 }
 
-func dataSourceRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func (r *programResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan execModelV0
 
-	programI := d.Get("program").([]interface{})
-	workingDir := d.Get("working_dir").(string)
-	query := d.Get("query").(map[string]interface{})
+	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
-	program := make([]string, 0, len(programI))
+	program := make([]string, 0, len(plan.Program.Elements()))
 
-	for _, programArgRaw := range programI {
-		programArg, ok := programArgRaw.(string)
-
-		if !ok || programArg == "" {
-			continue
-		}
-
-		program = append(program, programArg)
+	for _, programArgRaw := range plan.Program.Elements() {
+		program = append(program, programArgRaw.String())
 	}
 
 	if len(program) == 0 {
-		return diag.Diagnostics{
-			{
-				Severity:      diag.Error,
-				Summary:       "External Program Missing",
-				Detail:        "The data source was configured without a program to execute. Verify the configuration contains at least one non-empty value.",
-				AttributePath: cty.GetAttrPath("program"),
-			},
-		}
+		resp.Diagnostics.AddError("External Program Missing", "The data source was configured without a program to execute. Verify the configuration contains at least one non-empty value.")
+		return
 	}
 
-	queryJson, err := json.Marshal(query)
+	queryJson, err := json.Marshal(plan.Query)
 	if err != nil {
-		return diag.Diagnostics{
-			{
-				Severity: diag.Error,
-				Summary:  "Query Handling Failed",
-				Detail: "The data source received an unexpected error while attempting to parse the query. " +
-					"This is always a bug in the external provider code and should be reported to the provider developers." +
-					fmt.Sprintf("\n\nError: %s", err),
-				AttributePath: cty.GetAttrPath("query"),
-			},
-		}
+		resp.Diagnostics.AddError("Query Handling Failed", "The data source received an unexpected error while attempting to parse the query. "+
+			"This is always a bug in the external provider code and should be reported to the provider developers.")
+		return
 	}
 
 	// first element is assumed to be an executable command, possibly found
@@ -125,11 +118,8 @@ func dataSourceRead(ctx context.Context, d *schema.ResourceData, meta interface{
 	_, err = exec.LookPath(program[0])
 
 	if err != nil {
-		return diag.Diagnostics{
-			{
-				Severity: diag.Error,
-				Summary:  "External Program Lookup Failed",
-				Detail: `The data source received an unexpected error while attempting to find the program.
+		resp.Diagnostics.AddError("External Program Lookup Failed",
+			`The data source received an unexpected error while attempting to find the program.
 
 The program must be accessible according to the platform where Terraform is running.
 
@@ -138,17 +128,16 @@ If the expected program should be automatically found on the platform where Terr
 If the expected program is relative to the Terraform configuration, it is recommended that the program name includes the interpolated value of 'path.module' before the program name to ensure that it is compatible with varying module usage. For example: "${path.module}/my-program"
 
 The program must also be executable according to the platform where Terraform is running. On Unix-based platforms, the file on the filesystem must have the executable bit set. On Windows-based platforms, no action is typically necessary.
-` +
-					fmt.Sprintf("\nPlatform: %s", runtime.GOOS) +
-					fmt.Sprintf("\nProgram: %s", program[0]) +
-					fmt.Sprintf("\nError: %s", err),
-				AttributePath: cty.GetAttrPath("program"),
-			},
-		}
+`+
+				fmt.Sprintf("\nPlatform: %s", runtime.GOOS)+
+				fmt.Sprintf("\nProgram: %s", program[0])+
+				fmt.Sprintf("\nError: %s", err))
+
+		return
 	}
 
 	cmd := exec.CommandContext(ctx, program[0], program[1:]...)
-	cmd.Dir = workingDir
+	cmd.Dir = plan.WorkingDir.String()
 	cmd.Stdin = bytes.NewReader(queryJson)
 
 	tflog.Trace(ctx, "Executing external program", map[string]interface{}{"program": cmd.String()})
@@ -160,66 +149,85 @@ The program must also be executable according to the platform where Terraform is
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.Stderr != nil && len(exitErr.Stderr) > 0 {
-				return diag.Diagnostics{
-					{
-						Severity: diag.Error,
-						Summary:  "External Program Execution Failed",
-						Detail: "The data source received an unexpected error while attempting to execute the program." +
-							fmt.Sprintf("\n\nProgram: %s", cmd.Path) +
-							fmt.Sprintf("\nError Message: %s", string(exitErr.Stderr)) +
-							fmt.Sprintf("\nState: %s", err),
-						AttributePath: cty.GetAttrPath("program"),
-					},
-				}
+				resp.Diagnostics.AddError("External Program Execution Failed",
+					"The data source received an unexpected error while attempting to execute the program."+
+						fmt.Sprintf("\n\nProgram: %s", cmd.Path)+
+						fmt.Sprintf("\nError Message: %s", string(exitErr.Stderr))+
+						fmt.Sprintf("\nState: %s", err))
+				return
 			}
 
-			return diag.Diagnostics{
-				{
-					Severity: diag.Error,
-					Summary:  "External Program Execution Failed",
-					Detail: "The data source received an unexpected error while attempting to execute the program.\n\n" +
-						"The program was executed, however it returned no additional error messaging." +
-						fmt.Sprintf("\n\nProgram: %s", cmd.Path) +
-						fmt.Sprintf("\nState: %s", err),
-					AttributePath: cty.GetAttrPath("program"),
-				},
-			}
+			resp.Diagnostics.AddError("External Program Execution Failed",
+				"The data source received an unexpected error while attempting to execute the program.\n\n"+
+					"The program was executed, however it returned no additional error messaging."+
+					fmt.Sprintf("\n\nProgram: %s", cmd.Path)+
+					fmt.Sprintf("\nState: %s", err))
+			return
 		}
 
-		return diag.Diagnostics{
-			{
-				Severity: diag.Error,
-				Summary:  "External Program Execution Failed",
-				Detail: "The data source received an unexpected error while attempting to execute the program." +
-					fmt.Sprintf("\n\nProgram: %s", cmd.Path) +
-					fmt.Sprintf("\nError: %s", err),
-				AttributePath: cty.GetAttrPath("program"),
-			},
-		}
+		resp.Diagnostics.AddError("External Program Execution Failed",
+			"The data source received an unexpected error while attempting to execute the program."+
+				fmt.Sprintf("\n\nProgram: %s", cmd.Path)+
+				fmt.Sprintf("\nError: %s", err))
+		return
 	}
 
-	result := map[string]string{}
+	result := map[string]attr.Value{}
 	err = json.Unmarshal(resultJson, &result)
 	if err != nil {
-		return diag.Diagnostics{
-			{
-				Severity: diag.Error,
-				Summary:  "Unexpected External Program Results",
-				Detail: `The data source received unexpected results after executing the program.
+		resp.Diagnostics.AddError("Unexpected External Program Results",
+			`The data source received unexpected results after executing the program.
 
 Program output must be a JSON encoded map of string keys and string values.
 
 If the error is unclear, the output can be viewed by enabling Terraform's logging at TRACE level. Terraform documentation on logging: https://www.terraform.io/internals/debugging
-` +
-					fmt.Sprintf("\nProgram: %s", cmd.Path) +
-					fmt.Sprintf("\nResult Error: %s", err),
-				AttributePath: cty.GetAttrPath("program"),
-			},
-		}
+`+
+				fmt.Sprintf("\nProgram: %s", cmd.Path)+
+				fmt.Sprintf("\nResult Error: %s", err))
+		return
 	}
 
-	d.Set("result", result)
+	i := plan
 
-	d.SetId("-")
-	return nil
+	var d diag.Diagnostics
+	i.Result, d = types.MapValueFrom(ctx, types.StringType, result)
+
+	if len(d) > 0 {
+		resp.Diagnostics.Append(d...)
+	}
+
+	diags = resp.State.Set(ctx, i)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+}
+
+// Read does not need to perform any operations as the state in ReadResourceResponse is already populated.
+func (r *programResource) Read(context.Context, resource.ReadRequest, *resource.ReadResponse) {
+}
+
+// Update ensures the plan value is copied to the state to complete the update.
+func (r *programResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var model execModelV0
+
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+// Delete does not need to explicitly call resp.State.RemoveResource() as this is automatically handled by the
+// [framework](https://github.com/hashicorp/terraform-plugin-framework/pull/301).
+func (r *programResource) Delete(context.Context, resource.DeleteRequest, *resource.DeleteResponse) {
+}
+
+type execModelV0 struct {
+	Program    types.List   `tfsdk:"program"`
+	WorkingDir types.String `tfsdk:"working_dir"`
+	Query      types.String `tfsdk:"query"`
+	Result     types.Map    `tfsdk:"result"`
 }
