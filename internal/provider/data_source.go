@@ -5,17 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 var (
@@ -30,7 +31,7 @@ func NewExternalResource() resource.Resource {
 type programResource struct{}
 
 func (r *programResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_id"
+	resp.TypeName = req.ProviderTypeName + "_persisted"
 }
 
 func (r *programResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -50,6 +51,13 @@ func (r *programResource) Schema(ctx context.Context, req resource.SchemaRequest
 			"or external programs beyond standard shell utilities, so it is not recommended to use this data source " +
 			"within configurations that are applied within Terraform Enterprise.",
 		Attributes: map[string]schema.Attribute{
+			"id": schema.StringAttribute{
+				Computed:            true,
+				MarkdownDescription: "Identifier",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
 			"program": schema.ListAttribute{
 				Description: "A list of strings, whose first element is the program to run and whose " +
 					"subsequent elements are optional command line arguments to the program. Terraform does " +
@@ -69,18 +77,20 @@ func (r *programResource) Schema(ctx context.Context, req resource.SchemaRequest
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
-			"query": schema.StringAttribute{
+			"query": schema.MapAttribute{
 				Description: "A map of string values to pass to the external program as the query " +
 					"arguments. If not supplied, the program will receive an empty object as its input.",
-				Optional: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+				Optional:    true,
+				ElementType: types.StringType,
+				PlanModifiers: []planmodifier.Map{
+					mapplanmodifier.RequiresReplace(),
 				},
 			},
 			"result": schema.MapAttribute{
 				Description: "A map of string values to pass to the external program as the query " +
 					"arguments. If not supplied, the program will receive an empty object as its input.",
-				Computed: true,
+				Computed:    true,
+				ElementType: types.StringType,
 			},
 		},
 	}
@@ -98,7 +108,11 @@ func (r *programResource) Create(ctx context.Context, req resource.CreateRequest
 	program := make([]string, 0, len(plan.Program.Elements()))
 
 	for _, programArgRaw := range plan.Program.Elements() {
-		program = append(program, programArgRaw.String())
+		programArg := strings.Replace(programArgRaw.String(), "\"", "", -1)
+		if programArg == "" {
+			continue
+		}
+		program = append(program, programArg)
 	}
 
 	if len(program) == 0 {
@@ -106,7 +120,16 @@ func (r *programResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	queryJson, err := json.Marshal(plan.Query)
+	query := make(map[string]string)
+
+	for key, val := range plan.Query.Elements() {
+		valArg := strings.Replace(val.String(), "\"", "", -1)
+		if valArg == "" {
+			continue
+		}
+		query[key] = valArg
+	}
+	queryJson, err := json.Marshal(query)
 	if err != nil {
 		resp.Diagnostics.AddError("Query Handling Failed", "The data source received an unexpected error while attempting to parse the query. "+
 			"This is always a bug in the external provider code and should be reported to the provider developers.")
@@ -137,7 +160,7 @@ The program must also be executable according to the platform where Terraform is
 	}
 
 	cmd := exec.CommandContext(ctx, program[0], program[1:]...)
-	cmd.Dir = plan.WorkingDir.String()
+	cmd.Dir = plan.WorkingDir.ValueString()
 	cmd.Stdin = bytes.NewReader(queryJson)
 
 	tflog.Trace(ctx, "Executing external program", map[string]interface{}{"program": cmd.String()})
@@ -172,7 +195,7 @@ The program must also be executable according to the platform where Terraform is
 		return
 	}
 
-	result := map[string]attr.Value{}
+	result := map[string]interface{}{}
 	err = json.Unmarshal(resultJson, &result)
 	if err != nil {
 		resp.Diagnostics.AddError("Unexpected External Program Results",
@@ -188,6 +211,7 @@ If the error is unclear, the output can be viewed by enabling Terraform's loggin
 	}
 
 	i := plan
+	i.Id = types.StringValue("example-id")
 
 	var d diag.Diagnostics
 	i.Result, d = types.MapValueFrom(ctx, types.StringType, result)
@@ -226,8 +250,9 @@ func (r *programResource) Delete(context.Context, resource.DeleteRequest, *resou
 }
 
 type execModelV0 struct {
+	Id         types.String `tfsdk:"id"`
 	Program    types.List   `tfsdk:"program"`
 	WorkingDir types.String `tfsdk:"working_dir"`
-	Query      types.String `tfsdk:"query"`
+	Query      types.Map    `tfsdk:"query"`
 	Result     types.Map    `tfsdk:"result"`
 }

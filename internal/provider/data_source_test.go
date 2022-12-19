@@ -3,7 +3,7 @@ package provider
 import (
 	"fmt"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov5"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"os"
 	"os/exec"
 	"path"
@@ -23,7 +23,7 @@ const (
 )
 
 const testDataSourceConfig_basic = `
-resource "external" "test" {
+resource "external_persisted" "test" {
   program = ["%s", "cheese"]
 
   query = {
@@ -32,17 +32,17 @@ resource "external" "test" {
 }
 
 output "query_value" {
-  value = "${data.external.test.result["query_value"]}"
+  value = "${external_persisted.test.result["query_value"]}"
 }
 
 output "argument" {
-  value = "${data.external.test.result["argument"]}"
+  value = "${external_persisted.test.result["argument"]}"
 }
 `
 
-func protoV5ProviderFactories() map[string]func() (tfprotov5.ProviderServer, error) {
-	return map[string]func() (tfprotov5.ProviderServer, error){
-		"external": providerserver.NewProtocol5WithError(New()),
+func protoV6ProviderFactories() map[string]func() (tfprotov6.ProviderServer, error) {
+	return map[string]func() (tfprotov6.ProviderServer, error){
+		"external": providerserver.NewProtocol6WithError(New()),
 	}
 }
 
@@ -54,12 +54,12 @@ func TestDataSource_basic(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: fmt.Sprintf(testDataSourceConfig_basic, programPath),
 				Check: func(s *terraform.State) error {
-					_, ok := s.RootModule().Resources["resource.external.test"]
+					_, ok := s.RootModule().Resources["external_persisted.test"]
 					if !ok {
 						return fmt.Errorf("missing data resource")
 					}
@@ -94,7 +94,7 @@ func TestDataSource_basic(t *testing.T) {
 }
 
 const testDataSourceConfig_error = `
-resource "external" "test" {
+resource "external_persisted" "test" {
   program = ["%s"]
 
   query = {
@@ -111,7 +111,7 @@ func TestDataSource_error(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config:      fmt.Sprintf(testDataSourceConfig_error, programPath),
@@ -124,11 +124,11 @@ func TestDataSource_error(t *testing.T) {
 // Reference: https://github.com/hashicorp/terraform-provider-external/issues/110
 func TestDataSource_Program_OnlyEmptyString(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: `
-					resource "external" "test" {
+					resource "external_persisted" "test" {
 						program = [
 							"", # e.g. a variable that became empty
 						]
@@ -153,11 +153,11 @@ func TestDataSource_Program_PathAndEmptyString(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: fmt.Sprintf(`
-					resource "external" "test" {
+					resource "external_persisted" "test" {
 						program = [
 							%[1]q,
 							"", # e.g. a variable that became empty
@@ -169,7 +169,7 @@ func TestDataSource_Program_PathAndEmptyString(t *testing.T) {
 					}
 				`, programPath),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("resource.external.test", "result.query_value", "valuetest"),
+					resource.TestCheckResourceAttr("external_persisted.test", "result.query_value", "valuetest"),
 				),
 			},
 		},
@@ -209,11 +209,11 @@ func TestDataSource_20MinuteTimeout(t *testing.T) {
 	}
 
 	resource.UnitTest(t, resource.TestCase{
-		ProtoV5ProviderFactories: protoV5ProviderFactories(),
+		ProtoV6ProviderFactories: protoV6ProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: `
-					resource "external" "test" {
+					resource "external_persisted" "test" {
 						program = ["sleep", "1205"] # over 20 minutes
 					}
 				`,

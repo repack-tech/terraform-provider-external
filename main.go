@@ -14,7 +14,7 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "set to true to run the provider with support for debuggers like delve")
 	flag.Parse()
 	err := providerserver.Serve(context.Background(), provider.New, providerserver.ServeOpts{
-		Address:         "registry.terraform.io/hashicorp/external",
+		Address:         "registry.terraform.io/hashicorp/exec",
 		Debug:           debug,
 		ProtocolVersion: 5,
 	})
